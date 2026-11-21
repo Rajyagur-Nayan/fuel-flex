@@ -1,0 +1,56 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.9.2
+pydantic_settings
+pydantic[email]
+
+# MongoDB ODM & Driver
+motor>=3.3.0
+beanie==1.29.0
+pymongo>=4.6.0
+
+# Auth & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt
+python-dotenv==1.0.1
+
+# Utilities & Middleware
+structlog==24.4.0
+slowapi==0.1.9
+httpx==0.27.0
+apscheduler
+IPython
+python-multipart
+
+# Payments & Gateways
+razorpay
+
+# SMS & Communication
+twilio
+
+# Spreadsheet exports
+openpyxl
+
+# PDF report generation
+reportlab
+
+# OCR & AI processing (CPU mode)
+easyocr
+
+# Testing & Quality
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+
+# Attendance & Workstation Hours Calculation Subsystem
+opencv-python>=4.9.0.80
+ultralytics>=8.2.0
+facenet-pytorch>=2.6.0
+deep_sort_realtime>=1.3.2
+sqlalchemy>=2.0.30
+psycopg2-binary>=2.9.9
+alembic>=1.13.1
+websockets>=12.0
+numpy>=1.26.4
+Pillow>=10.2.0
+

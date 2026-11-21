@@ -1,0 +1,17 @@
+settings_version: 0.0.4
+datasets_dir: C:\project folder\project1\datasets
+weights_dir: C:\project folder\project1\employees_managment_system\weights
+runs_dir: C:\project folder\project1\employees_managment_system\runs
+uuid: 7eeb27d2fcdac26645e187442428311f5c70d949a4d7131d413e26a237babad6
+sync: true
+api_key: ''
+openai_api_key: ''
+clearml: true
+comet: true
+dvc: true
+hub: true
+mlflow: true
+neptune: true
+raytune: true
+tensorboard: true
+wandb: true

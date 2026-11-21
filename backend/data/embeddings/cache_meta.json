@@ -1,0 +1,34 @@
+{
+  "employees": {
+    "EMP001": {
+      "name": "Rajyaguru Nayan Kishorbhai",
+      "path": "C:\\project folder\\project1\\employees_managment_system\\data\\known_faces\\EMP001_Rajyaguru_Nayan_Kishorbhai",
+      "status": "ENROLLED",
+      "valid_images": 1,
+      "total_images": 1,
+      "files": [
+        {
+          "file": "ChatGPT Image Aug 21, 2026, 10_21_25 PM.png",
+          "valid": true
+        }
+      ],
+      "mtime": 1795206340.7117164
+    },
+    "EMP002": {
+      "name": "Kkr",
+      "path": "C:\\project folder\\project1\\employees_managment_system\\data\\known_faces\\EMP002_KKR",
+      "status": "ENROLLED",
+      "valid_images": 1,
+      "total_images": 1,
+      "files": [
+        {
+          "file": "Gemini_Generated_Image_8k09h88k09h88k09 (1).png",
+          "valid": true
+        }
+      ],
+      "mtime": 1795211245.135749
+    }
+  },
+  "total_enrolled": 2,
+  "total_failed": 0
+}
