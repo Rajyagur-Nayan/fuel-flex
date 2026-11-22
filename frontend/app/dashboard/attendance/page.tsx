@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   UserCheck,
+  UserX,
   Calendar,
   Search,
   Plus,
@@ -34,8 +35,10 @@ import {
 } from '@/lib/attendanceApi';
 import { toast } from '@/components/feedback/Toast';
 import { AttendanceNotifier } from '@/components/attendance/AttendanceNotifier';
+import { useAttendanceWebSocket } from '@/hooks/useAttendanceWebSocket';
 
 export default function AttendancePage() {
+  const { lastMessage } = useAttendanceWebSocket();
   const [records, setRecords] = useState<any[]>([]);
   const [filtered, setFiltered] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
@@ -64,6 +67,21 @@ export default function AttendancePage() {
   useEffect(() => {
     loadAttendance();
   }, [selectedDate, dateFilterType]);
+
+  // Real-time WebSocket updates: refresh attendance logs when face is verified without closing the camera
+  useEffect(() => {
+    if (!lastMessage) return;
+
+    if (lastMessage.type === 'attendance') {
+      loadAttendance();
+    } else if (lastMessage.type === 'system') {
+      if (lastMessage.status === 'running') {
+        setIsCameraRunning(true);
+      } else if (lastMessage.status === 'stopped') {
+        setIsCameraRunning(false);
+      }
+    }
+  }, [lastMessage]);
 
   const loadEmployees = async () => {
     try {
@@ -159,7 +177,12 @@ export default function AttendancePage() {
     }
   };
 
-  const totalPresent = records.filter((r) => !r.is_duplicate).length;
+  const totalPresent = records.filter(
+    (r) => !r.is_duplicate && (r.status === 'VERIFIED' || r.status === 'MANUAL_CORRECTION' || r.status === 'Present' || r.status === 'PRESENT')
+  ).length;
+  const totalAbsent = records.filter(
+    (r) => !r.is_duplicate && (r.status === 'ABSENT' || r.status === 'Absent')
+  ).length;
   const verifiedCount = records.filter((r) => r.status === 'VERIFIED').length;
   const manualCount = records.filter((r) => r.status === 'MANUAL_CORRECTION').length;
 
@@ -226,12 +249,25 @@ export default function AttendancePage() {
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
               Total Present Today
             </span>
-            <div className="h-9 w-9 rounded-xl bg-orange-50 text-primary flex items-center justify-center">
+            <div className="h-9 w-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
               <UserCheck className="h-5 w-5" />
             </div>
           </div>
           <div className="text-2xl font-bold text-slate-900 mt-2">{totalPresent}</div>
-          <p className="text-xs text-slate-400 mt-1">Unique active employee check-ins</p>
+          <p className="text-xs text-slate-400 mt-1">Verified & supervisor check-ins</p>
+        </div>
+
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              Absent / Awaiting Scan
+            </span>
+            <div className="h-9 w-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+              <UserX className="h-5 w-5" />
+            </div>
+          </div>
+          <div className="text-2xl font-bold text-slate-900 mt-2">{totalAbsent}</div>
+          <p className="text-xs text-rose-500 mt-1 font-medium">Pending face verification</p>
         </div>
 
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-card">
@@ -245,19 +281,6 @@ export default function AttendancePage() {
           </div>
           <div className="text-2xl font-bold text-slate-900 mt-2">{verifiedCount}</div>
           <p className="text-xs text-emerald-600 mt-1 font-medium">Liveness & confidence confirmed</p>
-        </div>
-
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Manual Corrections
-            </span>
-            <div className="h-9 w-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-              <Clock className="h-5 w-5" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-slate-900 mt-2">{manualCount}</div>
-          <p className="text-xs text-slate-400 mt-1">Supervisor manual check-ins</p>
         </div>
 
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-card">
@@ -415,7 +438,8 @@ export default function AttendancePage() {
                 </tr>
               ) : (
                 filtered.map((item) => {
-                  const isVerified = item.status === 'VERIFIED';
+                  const isAbsent = item.status === 'ABSENT' || item.status === 'Absent';
+                  const isVerified = item.status === 'VERIFIED' || item.status === 'PRESENT' || item.status === 'Present';
                   const isManual = item.status === 'MANUAL_CORRECTION';
                   const isLivenessFailed = item.status === 'LIVENESS_FAILED';
 
@@ -423,7 +447,13 @@ export default function AttendancePage() {
                     <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-3.5">
                         <div className="flex items-center gap-3">
-                          <div className="h-8 w-8 rounded-full bg-slate-100 text-slate-600 font-bold text-xs flex items-center justify-center border border-slate-200">
+                          <div
+                            className={`h-8 w-8 rounded-full font-bold text-xs flex items-center justify-center border ${
+                              isAbsent
+                                ? 'bg-rose-50 text-rose-600 border-rose-200'
+                                : 'bg-slate-100 text-slate-600 border-slate-200'
+                            }`}
+                          >
                             {item.name?.charAt(0)?.toUpperCase() || 'E'}
                           </div>
                           <div>
@@ -437,11 +467,21 @@ export default function AttendancePage() {
                           {item.timestamp ? format(new Date(item.timestamp), 'PP') : item.date}
                         </div>
                         <div className="text-xs text-slate-400">
-                          {item.timestamp ? format(new Date(item.timestamp), 'p') : '--'}
+                          {isAbsent ? (
+                            <span className="text-rose-500 font-medium">Awaiting Face Scan</span>
+                          ) : item.timestamp ? (
+                            format(new Date(item.timestamp), 'p')
+                          ) : (
+                            '--'
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-3.5">
-                        {item.confidence ? (
+                        {isAbsent ? (
+                          <span className="inline-flex items-center text-xs font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-100">
+                            Not Verified
+                          </span>
+                        ) : item.confidence ? (
                           <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-slate-800">
                             <div className="w-12 bg-slate-100 rounded-full h-1.5 overflow-hidden">
                               <div
@@ -458,7 +498,9 @@ export default function AttendancePage() {
                       <td className="px-6 py-3.5">
                         <span
                           className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
-                            isVerified
+                            isAbsent
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                              : isVerified
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                               : isManual
                               ? 'bg-blue-50 text-blue-700 border border-blue-200'
@@ -467,16 +509,18 @@ export default function AttendancePage() {
                               : 'bg-amber-50 text-amber-700 border border-amber-200'
                           }`}
                         >
-                          {isVerified ? (
+                          {isAbsent ? (
+                            <AlertTriangle className="h-3 w-3" />
+                          ) : isVerified ? (
                             <ShieldCheck className="h-3 w-3" />
                           ) : (
                             <Clock className="h-3 w-3" />
                           )}
-                          {item.status || 'VERIFIED'}
+                          {isAbsent ? 'ABSENT' : isVerified ? 'PRESENT' : item.status || 'VERIFIED'}
                         </span>
                       </td>
                       <td className="px-6 py-3.5 text-xs text-slate-500 max-w-[200px] truncate">
-                        {item.notes || 'Biometric check-in verified'}
+                        {item.notes || (isAbsent ? 'Default status: Absent' : 'Biometric check-in verified')}
                       </td>
                     </tr>
                   );

@@ -72,6 +72,12 @@ export default function WorkstationsPage() {
   const [absenceThresholdMin, setAbsenceThresholdMin] = useState<number>(15);
   const [savingThreshold, setSavingThreshold] = useState<boolean>(false);
 
+  // Camera preview state
+  const [isCameraRunning, setIsCameraRunning] = useState<boolean>(false);
+  const [cameraLoading, setCameraLoading] = useState<boolean>(false);
+  const [streamKey, setStreamKey] = useState<number>(Date.now());
+  const [streamError, setStreamError] = useState<boolean>(false);
+
   // Telemetry state
   const [telemetry, setTelemetry] = useState<any>({
     is_monitoring: false,
@@ -131,8 +137,38 @@ export default function WorkstationsPage() {
       if (empList && empList.length > 0) {
         setSelectedEmpId(empList[0].employee_id);
       }
+      checkCameraStatus();
     } catch (e: any) {
       console.error('Initial data load notice:', e);
+    }
+  };
+
+  const checkCameraStatus = async () => {
+    try {
+      const res = await getWorkstationCameraStatus();
+      setIsCameraRunning(res?.status === 'running');
+    } catch {}
+  };
+
+  const handleToggleCamera = async () => {
+    setCameraLoading(true);
+    try {
+      if (isCameraRunning) {
+        await stopWorkstationCamera();
+        setIsCameraRunning(false);
+        setStreamError(false);
+        toast.info('Workstation camera stopped');
+      } else {
+        await startWorkstationCamera();
+        setIsCameraRunning(true);
+        setStreamError(false);
+        setStreamKey(Date.now());
+        toast.success('Workstation camera preview started');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Camera operation failed');
+    } finally {
+      setCameraLoading(false);
     }
   };
 
@@ -211,6 +247,9 @@ export default function WorkstationsPage() {
       );
       toast.success(`Workstation session started for ${selectedEmpId}`);
       setIsSystemRunning(true);
+      setIsCameraRunning(true);
+      setStreamError(false);
+      setStreamKey(Date.now());
       loadIntervals(selectedWsId, selectedEmpId);
     } catch (err: any) {
       toast.error(err.message || 'Failed to start session');
@@ -340,6 +379,26 @@ export default function WorkstationsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={handleToggleCamera}
+            disabled={cameraLoading}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
+              isCameraRunning
+                ? 'bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100'
+                : 'bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100'
+            }`}
+          >
+            {isCameraRunning ? (
+              <>
+                <Square className="h-4 w-4 fill-current" /> Stop Camera
+              </>
+            ) : (
+              <>
+                <Play className="h-4 w-4 fill-current" /> Start Camera Preview
+              </>
+            )}
+          </button>
+
           <Link
             href="/dashboard/alerts"
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-white border border-slate-200 hover:border-primary text-slate-700 hover:text-primary transition-all shadow-xs"
@@ -565,17 +624,34 @@ export default function WorkstationsPage() {
 
           {/* Quick Workstation Live Feed */}
           <div className="rounded-xl overflow-hidden bg-slate-900 aspect-video relative flex items-center justify-center border border-slate-800">
-            <img
-              src={`${BACKEND_URL}/api/camera/workstation/stream`}
-              alt="Workstation Camera"
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                // If stream is offline
-              }}
-            />
-            <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/60 backdrop-blur-xs text-[10px] font-mono text-emerald-400">
-              Station {selectedWsId || 1} • ROI Active
-            </div>
+            {isCameraRunning && !streamError ? (
+              <>
+                <img
+                  key={streamKey}
+                  src={`${BACKEND_URL}/api/camera/workstation/stream?t=${streamKey}`}
+                  alt="Workstation Camera"
+                  className="w-full h-full object-contain"
+                  onError={() => setStreamError(true)}
+                />
+                <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/60 backdrop-blur-xs text-[10px] font-mono text-emerald-400 flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  Station {selectedWsId || 1} • Live ROI Active
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center p-4 text-center">
+                <Video className="h-8 w-8 text-slate-500 mb-2" />
+                <span className="text-xs font-semibold text-slate-300">Workstation Camera Standby</span>
+                <p className="text-[11px] text-slate-500 mt-0.5 mb-3">Live ROI presence & posture stream</p>
+                <button
+                  onClick={handleToggleCamera}
+                  disabled={cameraLoading}
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                >
+                  <Play className="h-3 w-3 fill-current" /> Start Preview
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

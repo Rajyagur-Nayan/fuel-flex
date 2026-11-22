@@ -60,17 +60,27 @@ async def check_in(
 
     today = date.today()
 
-    # Duplicate check-in guard
+    # Duplicate check-in guard / absent record update
     existing = await AttendanceRecord.find_one(
         AttendanceRecord.attendant_id == PydanticObjectId(str(attendant.id)),
         AttendanceRecord.date == today,
     )
     if existing:
-        if existing.check_in:
+        if existing.status == "Present" and existing.check_in:
             raise HTTPException(
                 status_code=400,
                 detail="Already checked in today."
             )
+        now = datetime.utcnow()
+        existing.status = "Present"
+        existing.check_in = now
+        await existing.save()
+        log.info("Check-in updated from Absent to Present", employee_id=attendant.employee_id, time=now.isoformat())
+        return {
+            "success": True,
+            "message": "Checked in successfully.",
+            "check_in_time": now.strftime("%I:%M %p"),
+        }
 
     now = datetime.utcnow()
     record = AttendanceRecord(

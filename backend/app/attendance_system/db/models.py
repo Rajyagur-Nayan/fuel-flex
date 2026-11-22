@@ -34,19 +34,20 @@ try:
             pool_recycle=60,
             pool_size=5,
             max_overflow=10,
-            pool_timeout=30,
+            pool_timeout=3,
             connect_args={
-                "connect_timeout": 10,
+                "connect_timeout": 3,
                 "keepalives": 1,
                 "keepalives_idle": 30,
                 "keepalives_interval": 10,
                 "keepalives_count": 5,
             },
         )
+        with engine.connect() as test_conn:
+            pass
     else:
         engine = create_engine(effective_db_url, pool_pre_ping=True, pool_recycle=60)
 except Exception as eng_err:
-    print(f"[Attendance DB] Failed to create primary engine ({eng_err}), using SQLite fallback.")
     fallback_path = os.path.join(PROJECT_ROOT, "data", "attendance.db")
     os.makedirs(os.path.dirname(fallback_path), exist_ok=True)
     engine = create_engine(f"sqlite:///{fallback_path}", connect_args={"check_same_thread": False})
@@ -98,7 +99,7 @@ class AttendanceLog(Base):
     timestamp = Column(DateTime, default=now_local, nullable=False)
     confidence = Column(Float, nullable=True)
     track_id = Column(Integer, nullable=True)
-    status = Column(String(50), default="VERIFIED")  # VERIFIED, MANUAL_CORRECTION, LIVENESS_FAILED, UNKNOWN
+    status = Column(String(50), default="ABSENT")  # ABSENT by default; updated to VERIFIED/PRESENT upon face verification
     is_duplicate = Column(Boolean, default=False)
     date = Column(String(20), nullable=False, index=True)  # YYYY-MM-DD
     notes = Column(Text, nullable=True)

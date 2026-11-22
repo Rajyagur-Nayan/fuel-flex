@@ -150,25 +150,35 @@ class CameraHub:
     _lock = threading.Lock()
 
     @classmethod
+    def _normalize(cls, source: Any) -> Any:
+        if isinstance(source, int):
+            return source
+        if isinstance(source, str) and source.isdigit():
+            return int(source)
+        return source
+
+    @classmethod
     def acquire(cls, source: Any) -> SafeCameraCapture:
         with cls._lock:
-            if source not in cls._captures or not cls._captures[source].is_running:
-                cap = SafeCameraCapture(source)
+            src = cls._normalize(source)
+            if src not in cls._captures or not cls._captures[src].is_running:
+                cap = SafeCameraCapture(src)
                 cap.start()
-                cls._captures[source] = cap
-                cls._ref_counts[source] = 1
+                cls._captures[src] = cap
+                cls._ref_counts[src] = 1
             else:
-                cls._ref_counts[source] = cls._ref_counts.get(source, 0) + 1
-            return cls._captures[source]
+                cls._ref_counts[src] = cls._ref_counts.get(src, 0) + 1
+            return cls._captures[src]
 
     @classmethod
     def release(cls, source: Any):
         with cls._lock:
-            if source in cls._ref_counts:
-                cls._ref_counts[source] -= 1
-                if cls._ref_counts[source] <= 0:
-                    cap = cls._captures.pop(source, None)
-                    cls._ref_counts.pop(source, None)
+            src = cls._normalize(source)
+            if src in cls._ref_counts:
+                cls._ref_counts[src] -= 1
+                if cls._ref_counts[src] <= 0:
+                    cap = cls._captures.pop(src, None)
+                    cls._ref_counts.pop(src, None)
                     if cap:
                         cap.stop()
 
@@ -275,22 +285,12 @@ class AttendanceCameraManager:
                             self.annotated_jpeg = jpeg.tobytes()
 
                     # Broadcast events
-                    attendance_marked = False
                     for ev in events:
                         await self.send_message(ev)
                         if ev.get("type") == "attendance":
-                            attendance_marked = True
-
-                    if attendance_marked:
-                        logger.info("[AttendanceCamera] Attendance processed. Auto-stopping camera.")
-                        # Allow a brief moment (1s) so the client receives the green annotated bounding box
-                        await asyncio.sleep(1.0)
-                        await self.send_message({
-                            "type": "system",
-                            "status": "stopped",
-                            "message": "Attendance marked successfully. Camera closed automatically.",
-                        })
-                        self.stop()
+                            logger.info(
+                                f"[AttendanceCamera] Attendance verified for employee {ev.get('employee_id')}. Camera remains continuously active."
+                            )
 
                 except asyncio.CancelledError:
                     raise

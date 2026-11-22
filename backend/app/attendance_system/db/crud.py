@@ -156,6 +156,7 @@ def get_all_persons_with_count(db: Session) -> List[Dict[str, Any]]:
                 AttendanceLog.date >= first_day,
                 AttendanceLog.date <= today,
                 AttendanceLog.is_duplicate == False,
+                AttendanceLog.status.in_(["VERIFIED", "MANUAL_CORRECTION"]),
             )
             .count()
         )
@@ -221,6 +222,45 @@ def get_employee_faces(db: Session, employee_id: str) -> List[EmployeeFace]:
 # Attendance Operations
 # ==============================================================================
 
+def ensure_daily_attendance_records(db: Session, date_str: Optional[str] = None) -> None:
+    """
+    Ensures every active employee has a default 'ABSENT' attendance record in the database
+    for the workday. When the employee's face is verified, this record is updated to 'VERIFIED' (Present).
+    """
+    target_date = date_str or current_date_str()
+    active_persons = db.query(Person).filter(Person.is_active == True).all()
+    if not active_persons:
+        return
+
+    existing_logs = db.query(AttendanceLog.employee_id).filter(AttendanceLog.date == target_date).all()
+    existing_emp_ids = {r[0] for r in existing_logs}
+
+    created_any = False
+    now = now_local()
+    for person in active_persons:
+        if person.employee_id not in existing_emp_ids:
+            absent_log = AttendanceLog(
+                person_id=person.id,
+                employee_id=person.employee_id,
+                name=person.name,
+                confidence=None,
+                track_id=None,
+                status="ABSENT",
+                is_duplicate=False,
+                date=target_date,
+                timestamp=now,
+                notes="Default status: Absent (Awaiting face verification)",
+            )
+            db.add(absent_log)
+            created_any = True
+
+    if created_any:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
 def get_existing_attendance(db: Session, employee_id: str, date_str: Optional[str] = None) -> Optional[AttendanceLog]:
     """Retrieves existing verified or manual attendance record for an employee on a workday."""
     target_date = date_str or current_date_str()
@@ -236,8 +276,11 @@ def get_existing_attendance(db: Session, employee_id: str, date_str: Optional[st
 
 
 def is_duplicate_attendance(db: Session, employee_id: str, date_str: Optional[str] = None) -> bool:
-    """Checks if a valid attendance check-in already exists for the workday."""
-    return get_existing_attendance(db, employee_id, date_str) is not None
+    """Checks if a verified attendance check-in already exists for the workday."""
+    existing = get_existing_attendance(db, employee_id, date_str)
+    if existing and existing.status in ("VERIFIED", "MANUAL_CORRECTION"):
+        return True
+    return False
 
 
 def log_attendance(
@@ -247,21 +290,42 @@ def log_attendance(
     track_id: Optional[int] = None,
     status: str = "VERIFIED",
     notes: Optional[str] = None,
+    date_str: Optional[str] = None,
 ) -> AttendanceLog:
     """
     Logs an attendance check-in.
+    If an existing ABSENT record is in the database for today, updates it to VERIFIED (Present).
     STRICT DUPLICATE PREVENTION:
-    If attendance already exists for this employee on today's date, DOES NOT insert another record.
+    If verified attendance already exists for this employee on today's date, DOES NOT insert another record.
     Returns the existing record flagged with is_duplicate=True.
     """
     now = now_local()
-    today_str = now.strftime("%Y-%m-%d")
+    today_str = date_str or now.strftime("%Y-%m-%d")
 
-    # 1. Check whether attendance already exists for that employee and date
+    # 1. Check whether attendance record already exists for that employee and date
     existing = get_existing_attendance(db, person.employee_id, today_str)
     if existing:
-        existing.is_duplicate = True
-        return existing
+        if existing.status in ("ABSENT", "NOT_VERIFIED"):
+            existing.status = status
+            existing.confidence = round(confidence, 4) if confidence is not None else None
+            existing.track_id = track_id
+            existing.timestamp = now
+            existing.notes = notes or "Face verified successfully"
+            existing.is_duplicate = False
+            db.commit()
+            db.refresh(existing)
+
+            log_audit_event(
+                db,
+                event_type="ATTENDANCE_CHECKIN",
+                employee_id=person.employee_id,
+                operator="facial_recognition",
+                details=f"Attendance verified for {person.name} ({person.employee_id}) with confidence {round(confidence, 2) if confidence is not None else 'N/A'}",
+            )
+            return existing
+        else:
+            existing.is_duplicate = True
+            return existing
 
     # 2. Insert single attendance record with unique constraint protection
     try:
@@ -275,7 +339,7 @@ def log_attendance(
             is_duplicate=False,
             date=today_str,
             timestamp=now,
-            notes=notes,
+            notes=notes or "Face verified successfully",
         )
         db.add(record)
         db.commit()
@@ -286,7 +350,7 @@ def log_attendance(
             event_type="ATTENDANCE_CHECKIN",
             employee_id=person.employee_id,
             operator="facial_recognition",
-            details=f"Attendance marked for {person.name} ({person.employee_id}) with confidence {round(confidence, 2) if confidence else 'N/A'}",
+            details=f"Attendance marked for {person.name} ({person.employee_id}) with confidence {round(confidence, 2) if confidence is not None else 'N/A'}",
         )
         return record
     except Exception as e:
@@ -294,6 +358,16 @@ def log_attendance(
         # Handle concurrent rapid requests
         existing = get_existing_attendance(db, person.employee_id, today_str)
         if existing:
+            if existing.status in ("ABSENT", "NOT_VERIFIED"):
+                existing.status = status
+                existing.confidence = round(confidence, 4) if confidence is not None else None
+                existing.track_id = track_id
+                existing.timestamp = now
+                existing.notes = notes or "Face verified successfully"
+                existing.is_duplicate = False
+                db.commit()
+                db.refresh(existing)
+                return existing
             existing.is_duplicate = True
             return existing
         raise e
@@ -308,8 +382,9 @@ def manual_mark_attendance(
 ) -> AttendanceLog:
     """
     Authorized manual attendance entry.
+    Updates existing ABSENT record to MANUAL_CORRECTION if present.
     STRICT DUPLICATE PREVENTION:
-    If attendance already exists for today, does NOT insert another record.
+    If already verified or marked for today, does NOT insert another record.
     """
     person = get_person_by_employee_id(db, employee_id)
     if not person:
@@ -321,8 +396,27 @@ def manual_mark_attendance(
     # 1. Check whether attendance already exists
     existing = get_existing_attendance(db, employee_id, today_str)
     if existing:
-        existing.is_duplicate = True
-        return existing
+        if existing.status in ("ABSENT", "NOT_VERIFIED"):
+            existing.status = "MANUAL_CORRECTION"
+            existing.confidence = 1.0
+            existing.track_id = None
+            existing.timestamp = now
+            existing.notes = notes or f"Manual attendance entry by {operator}"
+            existing.is_duplicate = False
+            db.commit()
+            db.refresh(existing)
+
+            log_audit_event(
+                db,
+                event_type="ATTENDANCE_MANUAL_ENTRY",
+                employee_id=employee_id,
+                operator=operator,
+                details=f"Manual attendance updated from ABSENT by {operator}. Notes: {notes or 'None'}",
+            )
+            return existing
+        else:
+            existing.is_duplicate = True
+            return existing
 
     # 2. Insert single manual record
     try:
@@ -354,6 +448,16 @@ def manual_mark_attendance(
         db.rollback()
         existing = get_existing_attendance(db, employee_id, today_str)
         if existing:
+            if existing.status in ("ABSENT", "NOT_VERIFIED"):
+                existing.status = "MANUAL_CORRECTION"
+                existing.confidence = 1.0
+                existing.track_id = None
+                existing.timestamp = now
+                existing.notes = notes or f"Manual attendance entry by {operator}"
+                existing.is_duplicate = False
+                db.commit()
+                db.refresh(existing)
+                return existing
             existing.is_duplicate = True
             return existing
         raise e

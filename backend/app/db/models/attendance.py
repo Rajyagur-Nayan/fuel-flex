@@ -15,7 +15,7 @@ class AttendanceRecord(Document):
     check_in: Optional[datetime] = None
     check_out: Optional[datetime] = None
     working_hours: Optional[float] = None
-    status: str = "Present"             # Present | Late | Absent | Leave | Holiday
+    status: str = "Absent"              # Present | Late | Absent | Leave | Holiday (Default: Absent until verified)
     note: Optional[str] = None          # pump owner add kar sakta hai
     is_manual: bool = False             # True = pump owner ne manually mark kiya
     created_at: datetime = Field(default_factory=datetime.utcnow)

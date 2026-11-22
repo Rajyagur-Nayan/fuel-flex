@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from app.attendance_system.api.dependencies import get_db
 from app.attendance_system.api.schemas import AttendanceLog
 from app.attendance_system.db.models import AttendanceLog as AttendanceModel
-from app.attendance_system.db.crud import manual_mark_attendance
+from app.attendance_system.db.crud import manual_mark_attendance, ensure_daily_attendance_records, current_date_str
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 
@@ -24,6 +24,10 @@ def get_attendance(
     employee_id: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
+    target_date = date or current_date_str()
+    # Seed default ABSENT attendance records for all active employees if not already present
+    ensure_daily_attendance_records(db, target_date)
+
     query = db.query(AttendanceModel)
     if date:
         query = query.filter(AttendanceModel.date == date)

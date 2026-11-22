@@ -45,7 +45,7 @@ class AttendanceLog(BaseModel):
     timestamp: datetime
     confidence: Optional[float] = None
     track_id: Optional[int] = None
-    status: Optional[str] = "VERIFIED"
+    status: Optional[str] = "ABSENT"
     is_duplicate: bool
     date: str
     notes: Optional[str] = None

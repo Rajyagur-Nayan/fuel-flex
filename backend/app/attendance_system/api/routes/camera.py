@@ -74,17 +74,28 @@ def get_workstation_camera_status():
 
 def generate_workstation_frames():
     last_frame = None
+    start_time = time.time()
     while workstation_manager.is_running:
         frame = workstation_manager.get_frame()
         if frame is not None and frame is not last_frame:
             last_frame = frame
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        elif frame is None and (time.time() - start_time > 10.0):
+            break
         time.sleep(0.02)
 
 
 @router.get("/workstation/stream")
-def workstation_video_stream():
+def workstation_video_stream(auto_start: bool = True):
+    if not workstation_manager.is_running and auto_start:
+        workstation_manager.start_camera()
+
+    # Wait up to 2.5s for initial frame
+    wait_start = time.time()
+    while workstation_manager.is_running and workstation_manager.get_frame() is None and (time.time() - wait_start < 2.5):
+        time.sleep(0.05)
+
     if not workstation_manager.is_running:
         return Response(status_code=400, content="Workstation camera not running")
     return StreamingResponse(generate_workstation_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
